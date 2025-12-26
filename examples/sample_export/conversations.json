@@ -1,0 +1,29 @@
+[
+  {
+    "id": "conv_1",
+    "title": "Sample Chat",
+    "create_time": 1734470400,
+    "update_time": 1734470500,
+    "mapping": {
+      "m1": {
+        "message": {
+          "id": "m1",
+          "author": { "role": "user" },
+          "create_time": 1734470401,
+          "content": { "content_type": "text", "parts": ["Help me write a short Python script for parsing JSON."] },
+          "metadata": {}
+        }
+      },
+      "m2": {
+        "message": {
+          "id": "m2",
+          "author": { "role": "assistant" },
+          "create_time": 1734470405,
+          "content": { "content_type": "text", "parts": ["Sure — here's a simple example using the json module."] },
+          "metadata": { "model_slug": "gpt-4o-mini" }
+        }
+      }
+    }
+  }
+]
+
