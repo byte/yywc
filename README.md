@@ -35,6 +35,11 @@ cd out
 magick -density 144 share.svg -background none share.png
 ```
 
+Or:
+```bash
+rsvg-convert -w 1200 -h 900 -o share.png share.svg
+```
+
 ## Example input
 There’s a tiny example export at `examples/sample_export/conversations.json`.
 ```bash
