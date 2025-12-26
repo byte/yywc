@@ -38,7 +38,7 @@ magick -density 144 share.svg -background none share.png
 ## Example input
 There’s a tiny example export at `examples/sample_export/conversations.json`.
 ```bash
-python3 -m yywc --export examples/sample_export --out out_example --year 2024
+python3 -m yywc --export examples/sample_export --out out_example --year 2025
 open out_example/report.html
 ```
 
