@@ -199,7 +199,12 @@ def _stat_card(x: int, y: int, w: int, h: int, label: str, value: str, icon_colo
     </g>"""
 
 
-def build_share_svg(summary: Summary, *, year_label: str) -> str:
+def _source_display_name(source: str) -> str:
+    return "Claude" if source == "claude" else "ChatGPT"
+
+
+def build_share_svg(summary: Summary, *, year_label: str, source: str = "chatgpt") -> str:
+    source_name = _source_display_name(source)
     # Highlights data
     highlights = [
         ("Total Messages", _fmt_int(summary.total_messages), COLORS["accent_cyan"]),
@@ -291,7 +296,7 @@ def build_share_svg(summary: Summary, *, year_label: str) -> str:
     pad = 48
 
     return f"""<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="Your Year With Chat - {year_label}">
+<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="Your Year With {source_name} - {year_label}">
   <defs>
     <!-- Background gradient -->
     <linearGradient id="bgGradient" x1="0" y1="0" x2="1" y2="1">
@@ -356,7 +361,7 @@ def build_share_svg(summary: Summary, *, year_label: str) -> str:
 
   <!-- Header -->
   <g transform="translate({pad + 32}, {pad + 48})">
-    <text class="title" x="0" y="0">Your Year With Chat</text>
+    <text class="title" x="0" y="0">Your Year With {source_name}</text>
     <text class="subtitle" x="0" y="32">{year_label} Wrapped</text>
   </g>
 

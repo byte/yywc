@@ -50,10 +50,15 @@ def _render_bar_chart(title: str, series: dict[str, int]) -> str:
     """
 
 
+def _source_display_name(source: str) -> str:
+    return "Claude" if source == "claude" else "ChatGPT"
+
+
 def build_report(dataset: Dataset, *, year: int | None, redact: bool, max_excerpts: int) -> Report:
     summary = summarize(dataset, year=year, redact=redact, max_excerpts=max_excerpts)
     generated_at = datetime.now(tz=timezone.utc).isoformat()
     year_label = str(year) if year is not None else "All time"
+    source_name = _source_display_name(dataset.source)
     data_json = json.dumps(asdict(summary), ensure_ascii=False)
     # Don't HTML-escape JSON inside a <script> tag: script bodies are raw text,
     # so entities like &quot; are not decoded and JSON.parse() will fail.
@@ -85,7 +90,7 @@ def build_report(dataset: Dataset, *, year: int | None, redact: bool, max_excerp
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Your Year With Chat — Year in Review ({_h(year_label)})</title>
+  <title>Your Year With {_h(source_name)} — Year in Review ({_h(year_label)})</title>
   <style>
     :root {{
       --bg: #0b1020;
@@ -329,7 +334,7 @@ def build_report(dataset: Dataset, *, year: int | None, redact: bool, max_excerp
 </head>
 <body>
   <header>
-    <h1>Your Year With Chat — Year in Review ({_h(year_label)})</h1>
+    <h1>Your Year With {_h(source_name)} — Year in Review ({_h(year_label)})</h1>
     <div class="subtitle">Generated locally · { _h(generated_at) } · No network required</div>
   </header>
   <main>

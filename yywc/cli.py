@@ -20,9 +20,9 @@ def _parse_roles(value: str) -> set[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="yywc",
-        description="Generate a local 'Your Year With Chat' report from a ChatGPT data export zip.",
+        description="Generate a local 'Your Year With Chat' report from a ChatGPT or Claude data export zip.",
     )
-    parser.add_argument("--export", required=True, help="Path to ChatGPT export .zip or extracted folder")
+    parser.add_argument("--export", required=True, help="Path to ChatGPT or Claude export .zip or extracted folder")
     parser.add_argument("--out", default="out", help="Output directory (default: out)")
     parser.add_argument(
         "--extract-dir",
@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     year_label = str(args.year) if args.year is not None else "All time"
-    share_svg = build_share_svg(report.summary, year_label=year_label)
+    share_svg = build_share_svg(report.summary, year_label=year_label, source=dataset.source)
 
     (out_dir / "summary.json").write_text(json.dumps(asdict(report.summary), indent=2, ensure_ascii=False) + "\n")
     (out_dir / "report.html").write_text(report.html, encoding="utf-8")

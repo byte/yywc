@@ -33,6 +33,7 @@ class Conversation:
 class Dataset:
     conversations: list[Conversation]
     messages: list[Message]
+    source: str = "chatgpt"  # "chatgpt" or "claude"
 
 
 def _dt_from_ts(ts: Any) -> datetime | None:
@@ -43,6 +44,17 @@ def _dt_from_ts(ts: Any) -> datetime | None:
     except (TypeError, ValueError):
         return None
     return datetime.fromtimestamp(value, tz=timezone.utc)
+
+
+def _dt_from_iso(iso_str: Any) -> datetime | None:
+    if not isinstance(iso_str, str):
+        return None
+    try:
+        # Handle ISO 8601 format: 2024-08-21T08:04:03.586168Z
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
 
 
 def _extract_text_from_content(content: Any) -> str:
@@ -105,6 +117,104 @@ def _load_conversations_json(source_dir: Path) -> list[dict[str, Any]]:
     return [c for c in data if isinstance(c, dict)]
 
 
+def _detect_export_source(conversations: list[dict[str, Any]]) -> str:
+    """Detect whether the export is from ChatGPT or Claude."""
+    if not conversations:
+        return "unknown"
+    sample = conversations[0]
+    # Claude exports have 'chat_messages' and 'uuid'
+    if "chat_messages" in sample and "uuid" in sample:
+        return "claude"
+    # ChatGPT exports have 'mapping' and 'id'
+    if "mapping" in sample and "id" in sample:
+        return "chatgpt"
+    return "unknown"
+
+
+def _claude_sender_to_role(sender: str) -> str:
+    """Map Claude's sender field to standard role names."""
+    mapping = {"human": "user", "assistant": "assistant"}
+    return mapping.get(sender, sender)
+
+
+def _extract_claude_text(message: dict[str, Any]) -> str:
+    """Extract text from Claude message format."""
+    # Primary: use the 'text' field directly
+    text = message.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    # Fallback: extract from content array
+    content = message.get("content")
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                t = item.get("text")
+                if isinstance(t, str) and t.strip():
+                    chunks.append(t.strip())
+        return "\n".join(chunks)
+    return ""
+
+
+def _read_claude_export(
+    conversations_raw: list[dict[str, Any]],
+    *,
+    year: int | None,
+    role_scope: set[str],
+) -> Dataset:
+    """Parse Claude export format."""
+    conversations: list[Conversation] = []
+    messages: list[Message] = []
+
+    for conv in conversations_raw:
+        conv_id = str(conv.get("uuid") or "")
+        title = str(conv.get("name") or "Untitled")
+        created_at = _dt_from_iso(conv.get("created_at"))
+        updated_at = _dt_from_iso(conv.get("updated_at"))
+        conversations.append(
+            Conversation(
+                conversation_id=conv_id,
+                title=title,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+        )
+
+        chat_messages = conv.get("chat_messages")
+        if not isinstance(chat_messages, list):
+            continue
+
+        for msg in chat_messages:
+            if not isinstance(msg, dict):
+                continue
+            created = _dt_from_iso(msg.get("created_at"))
+            if created is None:
+                continue
+            if year is not None and created.year != year:
+                continue
+            sender = msg.get("sender", "")
+            role = _claude_sender_to_role(sender)
+            if role not in role_scope:
+                continue
+            text = _extract_claude_text(msg)
+            if not text:
+                continue
+            messages.append(
+                Message(
+                    conversation_id=conv_id,
+                    conversation_title=title,
+                    message_id=str(msg.get("uuid") or ""),
+                    role=role,
+                    created_at=created,
+                    text=text,
+                    model=None,  # Claude exports don't include model info
+                )
+            )
+
+    messages.sort(key=lambda m: (m.created_at, m.conversation_id, m.message_id))
+    return Dataset(conversations=conversations, messages=messages, source="claude")
+
+
 @contextmanager
 def _open_export_source(export_path: Path, extract_dir: Path | None):
     if export_path.is_dir():
@@ -127,6 +237,59 @@ def _open_export_source(export_path: Path, extract_dir: Path | None):
     raise FileNotFoundError(f"Export path not found or unsupported: {export_path}")
 
 
+def _read_chatgpt_export(
+    conversations_raw: list[dict[str, Any]],
+    *,
+    year: int | None,
+    role_scope: set[str],
+) -> Dataset:
+    """Parse ChatGPT export format."""
+    conversations: list[Conversation] = []
+    messages: list[Message] = []
+
+    for conv in conversations_raw:
+        conv_id = str(conv.get("id") or "")
+        title = str(conv.get("title") or "Untitled")
+        created_at = _dt_from_ts(conv.get("create_time"))
+        updated_at = _dt_from_ts(conv.get("update_time"))
+        conversations.append(
+            Conversation(
+                conversation_id=conv_id,
+                title=title,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+        )
+
+        for msg in _iter_messages(conv):
+            created = _dt_from_ts(msg.get("create_time"))
+            if created is None:
+                continue
+            if year is not None and created.year != year:
+                continue
+            role = _get_role(msg)
+            if role not in role_scope:
+                continue
+            content = msg.get("content")
+            text = _extract_text_from_content(content)
+            if not text:
+                continue
+            messages.append(
+                Message(
+                    conversation_id=conv_id,
+                    conversation_title=title,
+                    message_id=str(msg.get("id") or ""),
+                    role=role,
+                    created_at=created,
+                    text=text,
+                    model=_get_model(msg),
+                )
+            )
+
+    messages.sort(key=lambda m: (m.created_at, m.conversation_id, m.message_id))
+    return Dataset(conversations=conversations, messages=messages, source="chatgpt")
+
+
 def read_export(
     export_path: Path,
     *,
@@ -136,48 +299,14 @@ def read_export(
 ) -> Dataset:
     with _open_export_source(export_path, extract_dir=extract_dir) as source_dir:
         conversations_raw = _load_conversations_json(source_dir)
+        source = _detect_export_source(conversations_raw)
 
-        conversations: list[Conversation] = []
-        messages: list[Message] = []
-
-        for conv in conversations_raw:
-            conv_id = str(conv.get("id") or "")
-            title = str(conv.get("title") or "Untitled")
-            created_at = _dt_from_ts(conv.get("create_time"))
-            updated_at = _dt_from_ts(conv.get("update_time"))
-            conversations.append(
-                Conversation(
-                    conversation_id=conv_id,
-                    title=title,
-                    created_at=created_at,
-                    updated_at=updated_at,
-                )
+        if source == "claude":
+            return _read_claude_export(
+                conversations_raw, year=year, role_scope=role_scope
             )
-
-            for msg in _iter_messages(conv):
-                created = _dt_from_ts(msg.get("create_time"))
-                if created is None:
-                    continue
-                if year is not None and created.year != year:
-                    continue
-                role = _get_role(msg)
-                if role not in role_scope:
-                    continue
-                content = msg.get("content")
-                text = _extract_text_from_content(content)
-                if not text:
-                    continue
-                messages.append(
-                    Message(
-                        conversation_id=conv_id,
-                        conversation_title=title,
-                        message_id=str(msg.get("id") or ""),
-                        role=role,
-                        created_at=created,
-                        text=text,
-                        model=_get_model(msg),
-                    )
-                )
-
-        messages.sort(key=lambda m: (m.created_at, m.conversation_id, m.message_id))
-        return Dataset(conversations=conversations, messages=messages)
+        else:
+            # Default to ChatGPT parser
+            return _read_chatgpt_export(
+                conversations_raw, year=year, role_scope=role_scope
+            )
